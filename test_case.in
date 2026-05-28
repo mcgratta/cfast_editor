@@ -1,0 +1,36 @@
+&HEAD
+ title = 'CFAST GUI test'
+/
+
+&TIME
+ simulation = 943
+ spreadsheet = 15.23
+ smokeview = 15.45
+/
+
+&INIT
+ interior_temperature = 23.54
+ exterior_temperature = 20.99
+ pressure = 101444
+ relative_humidity = 50.89
+/
+
+&MATL
+ material = 'dsafjsadjf'
+ id = 'dfd'
+ density = 456
+ conductivity = .4
+ specific_heat = 3
+ emissivity = .2
+ thickness = .003
+/
+
+&MATL
+ material = 'fsdfssdfsdfds'
+ id = 'dd'
+ density = 999
+ conductivity = .7
+ specific_heat = 4
+ emissivity = .6
+ thickness = .00005
+/
