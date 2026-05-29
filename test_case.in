@@ -34,3 +34,23 @@
  emissivity = .6
  thickness = .00005
 /
+
+&COMP
+ cross_sect_areas = (4, 5)
+ cross_sect_heights = (.1, .2)
+ depth = 5
+ hall = .FALSE.
+ height = 6
+ id = 'Comp1'
+ fyi = 'None'
+ ceiling_matl_id = ('dfd', 'OFF', 'OFF')
+ floor_matl_id = ('dd', 'OFF', 'OFF')
+ wall_matl_id = ('dd', 'OFF', 'OFF')
+ ceiling_thickness = (.1, 0.0, 0.0)
+ floor_thickness = (.2, 0.0, 0.0)
+ wall_thickness = (.2, 0.0, 0.0)
+ origin = (0, 0, 0)
+ shaft = .FALSE.
+ width = 4
+ leak_area = (.1, .2)
+/

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
 )
 from Thermal_Properties import ThermalProperties
+from Compartments import Compartments
 import sys
 
 
@@ -60,6 +61,9 @@ class NamelistGUI(QWidget):
                     thermal_tab = ThermalProperties()
                     layout.addWidget(thermal_tab)
                     self.thermal_properties = thermal_tab
+                elif name == "Compartments":
+                    self.compartments = Compartments(thermal_properties_tab=self.thermal_properties)
+                    layout.addWidget(self.compartments)
                 else:
                     layout.addStretch()
                     layout.addWidget(QLabel(f"Placeholder for {name} configuration."))
@@ -264,6 +268,19 @@ class NamelistGUI(QWidget):
             sections.append("/")
             sections.append("")
 
+        if hasattr(self, "compartments"):
+            comp_entries = self.compartments.get_data()
+            
+        for entry in comp_entries:
+            formatted = self._format_comp_entry(entry)
+            if not formatted:
+                continue
+            sections.append("&COMP")
+            sections.extend(f" {key} = {value}" for key, value in formatted.items())
+            sections.append("/")
+            sections.append("")
+
+
         return "\n".join(sections)
 
     def _format_matl_entry(self, entry: dict) -> dict:
@@ -288,6 +305,65 @@ class NamelistGUI(QWidget):
                 formatted[key] = value
         return formatted
 
+    def _format_comp_entry(self, entry: dict) -> dict:
+        """Format a compartment dictionary into the ordered COMP namelist fields."""
+        def quote_string(value):
+            text = str(value).strip()
+            if not text:
+                return None
+            if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
+                return text
+            return f"'{text}'"
+
+        def format_array(values, quote=False):
+            if not values:
+                return None
+            cleaned = []
+            for val in values:
+                if val is None:
+                    continue
+                text = str(val).strip()
+                if not text:
+                    continue
+                if quote:
+                    quoted = quote_string(text)
+                    if quoted:
+                        cleaned.append(quoted)
+                else:
+                    cleaned.append(text)
+            if not cleaned:
+                return None
+            return f"({', '.join(cleaned)})"
+
+        def set_field(key, value):
+            if value not in (None, "", []):
+                formatted[key] = value
+
+        formatted = {}
+
+        set_field("cross_sect_areas", format_array(entry.get("cross_sect_areas")))
+        set_field("cross_sect_heights", format_array(entry.get("cross_sect_heights")))
+        set_field("depth", entry.get("depth"))
+        set_field("grid", entry.get("grid"))
+        set_field("hall", entry.get("hall"))
+        set_field("height", entry.get("height"))
+        set_field("id", quote_string(entry.get("id")) or quote_string(entry.get("comp_id")))
+        set_field("fyi", quote_string(entry.get("fyi")))
+        set_field("ceiling_matl_id", format_array(entry.get("ceiling_matl_id"), quote=True))
+        set_field("floor_matl_id", format_array(entry.get("floor_matl_id"), quote=True))
+        set_field("wall_matl_id", format_array(entry.get("wall_matl_id"), quote=True))
+        set_field("ceiling_thickness", format_array(entry.get("ceiling_thickness")))
+        set_field("floor_thickness", format_array(entry.get("floor_thickness")))
+        set_field("wall_thickness", format_array(entry.get("wall_thickness")))
+        set_field("origin", format_array(entry.get("origin")))
+        set_field("shaft", entry.get("shaft"))
+        set_field("width", entry.get("width"))
+        set_field("leak_area_ratio", format_array(entry.get("leak_area_ratio")))
+        set_field("leak_area", format_array(entry.get("leak_area")))
+        set_field("flow_coefficient", entry.get("flow_coefficient"))
+
+        return formatted
+
     def _apply_values(self, values):
         for key, widget in self.entry_widgets.items():
             widget.setText(values.get(key, ""))
@@ -309,41 +385,208 @@ class NamelistGUI(QWidget):
         return {key: self._get_current_value(key) for key in self.entry_widgets}
 
     def _parse_namelist_content(self, text):
+        cleaned = self._collapse_continuations(self._strip_comments(text))
+        sections = self._tokenize_sections(cleaned)
+
         parsed = {}
         matl_entries = []
-        current_section = None
-        current_block = {}
-
-        def flush_block():
-            nonlocal current_section, current_block
-            if current_section == "MATL" and current_block:
-                matl_entries.append(current_block)
-            current_block = {}
-
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("!"):
-                continue
-            if stripped.startswith("&"):
-                flush_block()
-                current_section = stripped[1:].split()[0].upper()
-                continue
-            if stripped == "/":
-                flush_block()
-                current_section = None
-                continue
-            if "=" in stripped:
-                key, value = stripped.split("=", 1)
-                key = key.strip().lower()
-                value = value.split("!")[0].strip().rstrip(",")
-                value = self._trim_quotes(value)
-                if current_section == "MATL":
-                    current_block[key] = value
-                else:
-                    parsed[key] = value
-        flush_block()
+        for name, blocks in sections.items():
+            if name == "MATL":
+                matl_entries.extend(blocks)
+            else:
+                for block in blocks:
+                    parsed.update(block)
         return parsed, matl_entries
 
+    def _strip_comments(self, text):
+        result = []
+        in_quote = False
+        quote_char = ""
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if ch in "\"'":
+                result.append(ch)
+                if not in_quote:
+                    in_quote = True
+                    quote_char = ch
+                elif ch == quote_char:
+                    if i + 1 < len(text) and text[i + 1] == quote_char:
+                        result.append(text[i + 1])
+                        i += 1
+                    else:
+                        in_quote = False
+                        quote_char = ""
+                i += 1
+            elif ch == "!" and not in_quote:
+                while i < len(text) and text[i] not in "\n\r":
+                    i += 1
+            else:
+                result.append(ch)
+                i += 1
+        return "".join(result)
+
+    def _collapse_continuations(self, text):
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        result = []
+        i = 0
+        while i < len(normalized):
+            if normalized[i] == "&":
+                j = i + 1
+                while j < len(normalized) and normalized[j] in " \t":
+                    j += 1
+                if j < len(normalized) and normalized[j] == "\n":
+                    result.append(" ")
+                    i = j + 1
+                    continue
+            result.append(normalized[i])
+            i += 1
+        return "".join(result)
+
+    def _tokenize_sections(self, text):
+        sections = {}
+        i = 0
+        while i < len(text):
+            if text[i] == "&":
+                i += 1
+                while i < len(text) and text[i].isspace():
+                    i += 1
+                start = i
+                while i < len(text) and (text[i].isalnum() or text[i] == "_"):
+                    i += 1
+                section_name = text[start:i].upper()
+                block_chars = []
+                in_quote = False
+                quote_char = ""
+                while i < len(text):
+                    ch = text[i]
+                    if ch in "\"'":
+                        block_chars.append(ch)
+                        if not in_quote:
+                            in_quote = True
+                            quote_char = ch
+                        elif ch == quote_char:
+                            if i + 1 < len(text) and text[i + 1] == quote_char:
+                                block_chars.append(text[i + 1])
+                                i += 1
+                            else:
+                                in_quote = False
+                                quote_char = ""
+                        i += 1
+                        continue
+                    if ch == "/" and not in_quote:
+                        i += 1
+                        break
+                    block_chars.append(ch)
+                    i += 1
+                block_text = "".join(block_chars)
+                block_data = self._parse_assignments(block_text)
+                if block_data:
+                    sections.setdefault(section_name, []).append(block_data)
+            else:
+                i += 1
+        return sections
+
+    def _parse_assignments(self, block):
+        data = {}
+        idx = 0
+        length = len(block)
+        while idx < length:
+            # Skip leading delimiters (spaces, tabs, newlines, commas)
+            while idx < length and block[idx] in " \t\r\n,":
+                idx += 1
+            if idx >= length:
+                break
+
+            # Parse key
+            if not (block[idx].isalpha() or block[idx] == "_"):
+                idx += 1
+                continue
+            start = idx
+            while idx < length and (block[idx].isalnum() or block[idx] == "_"):
+                idx += 1
+            key = block[start:idx].lower()
+
+            # Skip whitespace before '='
+            while idx < length and block[idx].isspace():
+                idx += 1
+            if idx >= length or block[idx] != "=":
+                continue
+            idx += 1
+
+            # Parse value
+            value, idx = self._parse_value(block, idx)
+            if value is not None:
+                data[key] = value
+
+            # After a value, skip trailing delimiters before next key
+            while idx < length and block[idx] in " \t\r\n,":
+                idx += 1
+        return data
+
+    def _parse_value(self, text, idx):
+        while idx < len(text) and text[idx].isspace():
+            idx += 1
+        if idx >= len(text):
+            return None, idx
+        ch = text[idx]
+        if ch == "(":
+            idx += 1
+            items = []
+            current = []
+            in_quote = False
+            quote_char = ""
+            while idx < len(text):
+                ch = text[idx]
+                if in_quote:
+                    current.append(ch)
+                    if ch == quote_char:
+                        if idx + 1 < len(text) and text[idx + 1] == quote_char:
+                            current.append(text[idx + 1])
+                            idx += 1
+                        else:
+                            in_quote = False
+                            quote_char = ""
+                    idx += 1
+                    continue
+                if ch in "\"'":
+                    in_quote = True
+                    quote_char = ch
+                    current.append(ch)
+                    idx += 1
+                    continue
+                if ch == ",":
+                    items.append("".join(current).strip())
+                    current = []
+                    idx += 1
+                    continue
+                if ch == ")":
+                    items.append("".join(current).strip())
+                    idx += 1
+                    break
+                current.append(ch)
+                idx += 1
+            cleaned = [item for item in items if item]
+            return cleaned if cleaned else None, idx
+        if ch in "\"'":
+            quote = ch
+            start = idx + 1
+            idx += 1
+            while idx < len(text):
+                current = text[idx]
+                if current == quote:
+                    if idx + 1 < len(text) and text[idx + 1] == quote:
+                        idx += 2
+                        continue
+                    break
+                idx += 1
+            value = text[start:idx]
+            idx += 1
+            return value, idx
+        start = idx
+        while idx < len(text) and text[idx] not in ",/\n\r" and not text[idx].isspace():
+            idx += 1
+        return text[start:idx].strip(), idx
 
     def _trim_quotes(self, value):
         if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
