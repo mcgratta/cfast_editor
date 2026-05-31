@@ -191,11 +191,13 @@ class NamelistGUI(QWidget):
             self.log_info(f"Failed to open {filename}: {exc}")
             return
 
-        parsed, matl_entries = self._parse_namelist_content(content)
+        parsed, matl_entries, comp_entries = self._parse_namelist_content(content)
         updated = {**self.defaults, **parsed}
         self._apply_values(updated)
         if hasattr(self, "thermal_properties") and matl_entries:
             self.thermal_properties.set_data(matl_entries)
+        if hasattr(self, "compartments") and comp_entries:
+            self.compartments.set_data(comp_entries)
         self.baseline_values = updated.copy()
         self.log_info(f"Loaded parameters from {filename}")
 
@@ -268,6 +270,7 @@ class NamelistGUI(QWidget):
             sections.append("/")
             sections.append("")
 
+        comp_entries = []
         if hasattr(self, "compartments"):
             comp_entries = self.compartments.get_data()
             
@@ -390,13 +393,16 @@ class NamelistGUI(QWidget):
 
         parsed = {}
         matl_entries = []
+        comp_entries = []
         for name, blocks in sections.items():
             if name == "MATL":
                 matl_entries.extend(blocks)
+            elif name == "COMP":
+                comp_entries.extend(blocks)
             else:
                 for block in blocks:
                     parsed.update(block)
-        return parsed, matl_entries
+        return parsed, matl_entries, comp_entries
 
     def _strip_comments(self, text):
         result = []
