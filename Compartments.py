@@ -216,10 +216,138 @@ class Compartments(QWidget):
         return compartments
 
     def set_data(self, comp_list):
-        """Populates the table from a list of dictionaries."""
+        """Populates the table from parsed COMP namelist dictionaries."""
         self.table.setRowCount(0)
+        self.cross_sect_table.setRowCount(0)
+        cross_loaded = False
+
         for entry in comp_list:
             self.add_row()
             row = self.table.rowCount() - 1
-            # Implementation would map entry keys back to table items/widgets
-            pass
+
+            self._set_item_text(row, 0, self._value_to_str(entry.get("id") or entry.get("comp_id")))
+            self._set_item_text(row, 1, self._value_to_str(entry.get("width"), "0.0"))
+            self._set_item_text(row, 2, self._value_to_str(entry.get("depth"), "0.0"))
+            self._set_item_text(row, 3, self._value_to_str(entry.get("height"), "0.0"))
+
+            origin = self._normalize_list(entry, "origin", 3, "0.0")
+            for idx, col in enumerate(range(4, 7)):
+                self._set_item_text(row, col, origin[idx])
+
+            leak_key = "leak_area" if "leak_area" in entry else ("leak_area_ratio" if "leak_area_ratio" in entry else None)
+            leak = self._normalize_list(entry, leak_key, 2, "0.0") if leak_key else ["0.0", "0.0"]
+            for idx, col in enumerate([7, 8]):
+                self._set_item_text(row, col, leak[idx])
+
+            ceiling_ids = self._normalize_list(entry, "ceiling_matl_id", 3, "OFF")
+            ceiling_th = self._normalize_list(entry, "ceiling_thickness", 3, "0.0")
+            for idx, col in enumerate([9, 11, 13]):
+                self._set_combo_value(row, col, ceiling_ids[idx])
+            for idx, col in enumerate([10, 12, 14]):
+                self._set_item_text(row, col, ceiling_th[idx])
+
+            wall_ids = self._normalize_list(entry, "wall_matl_id", 3, "OFF")
+            wall_th = self._normalize_list(entry, "wall_thickness", 3, "0.0")
+            for idx, col in enumerate([15, 17, 19]):
+                self._set_combo_value(row, col, wall_ids[idx])
+            for idx, col in enumerate([16, 18, 20]):
+                self._set_item_text(row, col, wall_th[idx])
+
+            floor_ids = self._normalize_list(entry, "floor_matl_id", 3, "OFF")
+            floor_th = self._normalize_list(entry, "floor_thickness", 3, "0.0")
+            for idx, col in enumerate([21, 23, 25]):
+                self._set_combo_value(row, col, floor_ids[idx])
+            for idx, col in enumerate([22, 24, 26]):
+                self._set_item_text(row, col, floor_th[idx])
+
+            flow_text = self._determine_flow(entry)
+            self._set_combo_value(row, 27, flow_text)
+
+            checkbox = self._describe_variable_cross_checkbox(row)
+            cross_heights = self._normalize_list(entry, "cross_sect_heights", None)
+            cross_areas = self._normalize_list(entry, "cross_sect_areas", None)
+            has_cross = bool(cross_heights or cross_areas)
+            if checkbox:
+                checkbox.setChecked(has_cross)
+            if has_cross and not cross_loaded:
+                self._populate_cross_section_table(cross_heights, cross_areas)
+                cross_loaded = True
+
+        self.update_cs_visibility()
+
+    def _set_item_text(self, row, col, text):
+        item = self.table.item(row, col)
+        if item is None:
+            item = QTableWidgetItem()
+            self.table.setItem(row, col, item)
+        item.setText(text)
+
+    def _set_combo_value(self, row, col, text):
+        combo = self.table.cellWidget(row, col)
+        if not combo:
+            return
+        cleaned = self._value_to_str(text, "OFF")
+        index = combo.findText(cleaned)
+        if index < 0:
+            combo.addItem(cleaned)
+            index = combo.count() - 1
+        combo.setCurrentIndex(index)
+
+    def _normalize_list(self, entry, key, count=None, default=""):
+        if key is None:
+            return [default] * count if count is not None else []
+        raw = entry.get(key)
+        values = []
+        if isinstance(raw, list):
+            values = [self._value_to_str(item, default) for item in raw]
+        elif raw is not None:
+            values = [self._value_to_str(raw, default)]
+        if count is None:
+            return values
+        if len(values) < count:
+            values.extend([default] * (count - len(values)))
+        return values[:count]
+
+    def _value_to_str(self, value, default=""):
+        text = self._trim_quotes(value)
+        if text:
+            return text
+        return default
+
+    def _trim_quotes(self, value):
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if len(text) >= 2 and ((text[0] == text[-1]) and text[0] in "\"'"):
+            return text[1:-1]
+        return text
+
+    def _determine_flow(self, entry):
+        shaft = str(entry.get("shaft", "")).strip().upper() == ".TRUE."
+        hall = str(entry.get("hall", "")).strip().upper() == ".TRUE."
+        if shaft:
+            return "Shaft"
+        if hall:
+            return "Corridor"
+        char = self._trim_quotes(entry.get("flow_char"))
+        mapping = {"SHAFT": "Shaft", "CORRIDOR": "Corridor", "NORMAL": "Normal"}
+        if char:
+            return mapping.get(char.upper(), "Normal")
+        return "Normal"
+
+    def _populate_cross_section_table(self, heights, areas):
+        self.cross_sect_table.setRowCount(0)
+        rows = max(len(heights), len(areas)) if heights or areas else 0
+        for idx in range(rows):
+            self.cross_sect_table.insertRow(idx)
+            height = heights[idx] if idx < len(heights) else "0.0"
+            area = areas[idx] if idx < len(areas) else "0.0"
+            self.cross_sect_table.setItem(idx, 0, QTableWidgetItem(height))
+            self.cross_sect_table.setItem(idx, 1, QTableWidgetItem(area))
+
+    def _describe_variable_cross_checkbox(self, row):
+        container = self.table.cellWidget(row, 28)
+        if not container:
+            return None
+        return container.findChild(QCheckBox)
+
