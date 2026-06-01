@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
 )
 from Thermal_Properties import ThermalProperties
 from Compartments import Compartments
+from Wall_Vents import WallVents
+
 import sys
 
 
@@ -64,6 +66,9 @@ class NamelistGUI(QWidget):
                 elif name == "Compartments":
                     self.compartments = Compartments(thermal_properties_tab=self.thermal_properties)
                     layout.addWidget(self.compartments)
+                elif name == "Wall Vents":
+                    self.wall_vents = WallVents(compartments_tab=self.compartments)
+                    layout.addWidget(self.wall_vents)
                 else:
                     layout.addStretch()
                     layout.addWidget(QLabel(f"Placeholder for {name} configuration."))
@@ -191,13 +196,15 @@ class NamelistGUI(QWidget):
             self.log_info(f"Failed to open {filename}: {exc}")
             return
 
-        parsed, matl_entries, comp_entries = self._parse_namelist_content(content)
+        parsed, matl_entries, comp_entries, vent_entries = self._parse_namelist_content(content)
         updated = {**self.defaults, **parsed}
         self._apply_values(updated)
         if hasattr(self, "thermal_properties") and matl_entries:
             self.thermal_properties.set_data(matl_entries)
         if hasattr(self, "compartments") and comp_entries:
             self.compartments.set_data(comp_entries)
+        if hasattr(self, "wall_vents") and vent_entries:
+            self.wall_vents.set_data(vent_entries)
         self.baseline_values = updated.copy()
         self.log_info(f"Loaded parameters from {filename}")
 
@@ -283,6 +290,18 @@ class NamelistGUI(QWidget):
             sections.append("/")
             sections.append("")
 
+        vent_entries = []
+        if hasattr(self, "wall_vents"):
+            vent_entries = self.wall_vents.get_data()
+
+        for entry in vent_entries:
+            formatted = self._format_vent_entry(entry)
+            if not formatted:
+                continue
+            sections.append("&VENT")
+            sections.extend(f" {key} = {value}" for key, value in formatted.items())
+            sections.append("/")
+            sections.append("")
 
         return "\n".join(sections)
 
@@ -367,6 +386,51 @@ class NamelistGUI(QWidget):
 
         return formatted
 
+    def _format_vent_entry(self, entry):
+        def quote_string(value):
+            text = str(value).strip()
+            if not text:
+                return None
+            if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
+                return text
+            return f"'{text}'"
+
+        def format_array(values):
+            if not values:
+                return None
+            items = [str(v).strip() for v in values if v not in (None, "")]
+            if not items:
+                return None
+            return f"({', '.join(items)})"
+
+        formatted = {}
+        def set_field(key, value, formatter=lambda v: v):
+            if value not in (None, "", [], {}):
+                formatted[key] = formatter(value)
+
+        set_field("id", entry.get("id"), quote_string)
+        set_field("comp_ids", entry.get("comp_ids"), format_array)
+        set_field("bottom", entry.get("bottom"))
+        set_field("height", entry.get("height"))
+        set_field("width", entry.get("width"))
+        set_field("offset", entry.get("offset"))
+        set_field("face", entry.get("face"), quote_string)
+        crit = entry.get("criterion")
+        if crit and crit != "None":
+            set_field("criterion", crit, quote_string)
+        elif crit == "None":
+            formatted["criterion"] = "NULL"
+
+        if entry.get("criterion") == "Time":
+            set_field("t", entry.get("t"), format_array)
+            set_field("f", entry.get("f"), format_array)
+        elif entry.get("criterion") in {"Temperature", "Heat Flux"}:
+            set_field("setpoint", entry.get("setpoint"))
+            set_field("pre_fraction", entry.get("pre_fraction"))
+            set_field("post_fraction", entry.get("post_fraction"))
+
+        return formatted
+    
     def _apply_values(self, values):
         for key, widget in self.entry_widgets.items():
             widget.setText(values.get(key, ""))
@@ -394,15 +458,18 @@ class NamelistGUI(QWidget):
         parsed = {}
         matl_entries = []
         comp_entries = []
+        vent_entries = []
         for name, blocks in sections.items():
             if name == "MATL":
                 matl_entries.extend(blocks)
             elif name == "COMP":
                 comp_entries.extend(blocks)
+            elif name == "VENT":
+                vent_entries.extend(blocks)
             else:
                 for block in blocks:
                     parsed.update(block)
-        return parsed, matl_entries, comp_entries
+        return parsed, matl_entries, comp_entries, vent_entries
 
     def _strip_comments(self, text):
         result = []
@@ -497,14 +564,23 @@ class NamelistGUI(QWidget):
         data = {}
         idx = 0
         length = len(block)
+
+        def _append_value(key, value):
+            if value is None:
+                return
+            current = data.get(key)
+            if current is None:
+                data[key] = value
+            elif isinstance(current, list):
+                current.append(value)
+            else:
+                data[key] = [current, value]
+
         while idx < length:
-            # Skip leading delimiters (spaces, tabs, newlines, commas)
             while idx < length and block[idx] in " \t\r\n,":
                 idx += 1
             if idx >= length:
                 break
-
-            # Parse key
             if not (block[idx].isalpha() or block[idx] == "_"):
                 idx += 1
                 continue
@@ -513,19 +589,33 @@ class NamelistGUI(QWidget):
                 idx += 1
             key = block[start:idx].lower()
 
-            # Skip whitespace before '='
             while idx < length and block[idx].isspace():
                 idx += 1
             if idx >= length or block[idx] != "=":
                 continue
             idx += 1
 
-            # Parse value
             value, idx = self._parse_value(block, idx)
             if value is not None:
-                data[key] = value
+                _append_value(key, value)
+                # consume any additional literals that belong to the same key
+                while True:
+                    look = idx
+                    while look < length and block[look].isspace():
+                        look += 1
+                    if look < length and block[look] == ",":
+                        look += 1
+                        while look < length and block[look].isspace():
+                            look += 1
+                    if look < length and block[look] in "\"'+-.0123456789":
+                        idx = look
+                        extra_value, idx = self._parse_value(block, idx)
+                        if extra_value is not None:
+                            _append_value(key, extra_value)
+                            continue
+                    idx = look
+                    break
 
-            # After a value, skip trailing delimiters before next key
             while idx < length and block[idx] in " \t\r\n,":
                 idx += 1
         return data
