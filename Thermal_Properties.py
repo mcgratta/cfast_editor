@@ -1,78 +1,168 @@
+# Thermal_Properties.py
+
+from typing import Any, Dict, List
+
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, 
-    QPushButton, QHBoxLayout, QHeaderView
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QScrollArea,
+    QFormLayout,
+    QLineEdit,
+    QLabel,
+    QGroupBox,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt
 
-class ThermalProperties(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.layout = QVBoxLayout(self)
+from namelist_definitions import NAMELISTS
 
-        # Headings as specified for the MATL namelist
-        self.headers = [
-            "Material", "ID", "Density (kg/m\u00B3)", 
-            "Conductivity (kW/m/K)", "Specific Heat (kJ/kg/K)", 
-            "Emissivity", "Thickness (m)"
-        ]
-        
-        # Mapping headers to namelist variable names in namelist_inputs.f90
-        self.namelist_map = [
-            "material", "id", "density", 
-            "conductivity", "specific_heat", 
-            "emissivity", "thickness"
-        ]
 
-        # Initialize Table
-        self.table = QTableWidget(0, len(self.headers))
-        self.table.setHorizontalHeaderLabels(self.headers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.layout.addWidget(self.table)
+def _parse_value(text: str, metadata: Dict[str, Any]) -> Any:
+    """Convert text input into the appropriate Python type for f90nml."""
+    text = text.strip()
+    if not text:
+        return metadata.get("default")
 
-        # Row management buttons
-        btn_layout = QHBoxLayout()
-        self.add_row_btn = QPushButton("Add Row")
-        self.add_row_btn.clicked.connect(self.add_row)
-        
-        self.remove_row_btn = QPushButton("Delete Row")
-        self.remove_row_btn.clicked.connect(self.remove_row)
-        
-        btn_layout.addWidget(self.add_row_btn)
-        btn_layout.addWidget(self.remove_row_btn)
-        btn_layout.addStretch()
-        self.layout.addLayout(btn_layout)
+    base_type = metadata["type"]
+    if base_type.endswith("_array"):
+        text_items = [item.strip() for item in text.split(",") if item.strip()]
+        elem_type = base_type.replace("_array", "")
+        converter = int if elem_type == "integer" else float if elem_type == "real" else str
+        return [converter(item) for item in text_items] if text_items else metadata.get("default")
+    if base_type == "integer":
+        try:
+            return int(text)
+        except ValueError:
+            return metadata.get("default")
+    if base_type == "real":
+        try:
+            return float(text)
+        except ValueError:
+            return metadata.get("default")
+    if base_type == "logical":
+        lowered = text.lower()
+        return lowered in ("t", "true", ".true.", "1")
+    return text
 
-    def add_row(self):
-        row_count = self.table.rowCount()
-        self.table.insertRow(row_count)
-        for col in range(len(self.headers)):
-            self.table.setItem(row_count, col, QTableWidgetItem(""))
 
-    def remove_row(self):
-        current_row = self.table.currentRow()
-        if current_row >= 0:
-            self.table.removeRow(current_row)
+class MaterialEntryWidget(QGroupBox):
+    """Widget that captures one MATL entry."""
 
-    def get_data(self):
-        """Extracts table data into a list of dictionaries for namelist generation."""
-        materials = []
-        for row in range(self.table.rowCount()):
-            mat_data = {}
-            for col, key in enumerate(self.namelist_map):
-                item = self.table.item(row, col)
-                val = item.text().strip() if item else ""
-                if val:
-                    mat_data[key] = val
-            if mat_data:
-                materials.append(mat_data)
-        return materials
+    def __init__(self, defaults: Dict[str, Dict[str, Any]], remove_callback=None, preset: Dict[str, Any] = None):
+        super().__init__("Material Allocation")
+        self.defaults = defaults
+        self.remove_callback = remove_callback
+        self.form = QFormLayout()
+        self.fields: Dict[str, QLineEdit] = {}
 
-    def set_data(self, materials_list):
-        """Populates the table from a list of dictionaries (e.g., when loading a file)."""
-        self.table.setRowCount(0)
-        for entry in materials_list:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            for col, key in enumerate(self.namelist_map):
-                val = entry.get(key, "")
-                self.table.setItem(row, col, QTableWidgetItem(str(val)))
+        entry_values = preset or {}
+        for var_name, metadata in self.defaults.items():
+            line_edit = QLineEdit()
+            default = entry_values.get(var_name, metadata.get("default", ""))
+            if isinstance(default, (list, tuple)):
+                default = ", ".join(str(x) for x in default)
+            line_edit.setText(str(default))
+            self.form.addRow(f"{var_name}:", line_edit)
+            self.fields[var_name] = line_edit
+
+        self.delete_button = QPushButton("Remove Entry")
+        self.delete_button.clicked.connect(self._trigger_removal)
+
+        bottom_layout = QHBoxLayout()
+        bottom_layout.addStretch()
+        bottom_layout.addWidget(self.delete_button)
+
+        wrapper = QVBoxLayout()
+        wrapper.addLayout(self.form)
+        wrapper.addLayout(bottom_layout)
+        self.setLayout(wrapper)
+
+    def _trigger_removal(self):
+        if self.remove_callback:
+            self.remove_callback(self)
+
+    def get_values(self) -> Dict[str, Any]:
+        values = {}
+        for var_name, widget in self.fields.items():
+            meta = self.defaults[var_name]
+            values[var_name] = _parse_value(widget.text(), meta)
+        return values
+
+    def set_values(self, values: Dict[str, Any]):
+        for var_name, widget in self.fields.items():
+            incoming = values.get(var_name, self.defaults[var_name].get("default", ""))
+            if isinstance(incoming, (list, tuple)):
+                incoming = ", ".join(str(x) for x in incoming)
+            widget.setText(str(incoming))
+
+
+class Thermal_Properties(QWidget):
+    """Tab that allows adding, editing, and removing multiple MATL namelist entries."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        outer_layout = QVBoxLayout(self)
+
+        header = QLabel("Thermal Properties (MATL)")
+        header.setAlignment(Qt.AlignCenter)
+        header.setStyleSheet("font-weight: bold; font-size: 14pt;")
+        outer_layout.addWidget(header)
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        container = QWidget()
+        self.entries_layout = QVBoxLayout(container)
+        self.entries_layout.addStretch()
+        self.scroll.setWidget(container)
+        outer_layout.addWidget(self.scroll)
+
+        button_layout = QHBoxLayout()
+        self.add_button = QPushButton("Add Material Entry")
+        self.add_button.clicked.connect(self._add_empty_entry)
+        button_layout.addStretch()
+        button_layout.addWidget(self.add_button)
+        outer_layout.addLayout(button_layout)
+
+        self.entry_widgets: List[MaterialEntryWidget] = []
+        self._add_empty_entry()  # start with one entry
+
+    def _add_empty_entry(self):
+        self._add_entry()
+
+    def _add_entry(self, preset: Dict[str, Any] = None):
+        """Create a new material entry widget and keep track of it."""
+        entry_widget = MaterialEntryWidget(
+            defaults=NAMELISTS["MATL"],
+            preset=preset,
+            remove_callback=self._remove_entry,
+        )
+        self.entry_widgets.append(entry_widget)
+        # Insert before the stretch spacer
+        self.entries_layout.insertWidget(self.entries_layout.count() - 1, entry_widget)
+
+    def _remove_entry(self, widget: MaterialEntryWidget, *, force: bool = False):
+        if not force and len(self.entry_widgets) == 1:
+            QMessageBox.information(self, "Cannot remove", "At least one MATL entry is required.")
+            return
+        self.entry_widgets.remove(widget)
+        widget.setParent(None)
+        widget.deleteLater()
+
+    def _clear_entries(self):
+        for widget in list(self.entry_widgets):
+            self._remove_entry(widget, force=True)
+
+    def get_data(self) -> Dict[str, List[Dict[str, Any]]]:
+        return {"MATL": [entry.get_values() for entry in self.entry_widgets]}
+
+    def set_data(self, data: Dict[str, Any]):
+        mats = data.get("MATL", [])
+        if isinstance(mats, dict):
+            mats = [mats]
+        mats = mats or [{}]
+        self._clear_entries()
+        for entry in mats:
+            self._add_entry(preset=entry)
+
