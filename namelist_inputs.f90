@@ -1,11 +1,10 @@
 module input_namelists
 
-    integer :: eb = 8
-    integer :: mxpts = 200
-    integer :: mxtablcols = 25
-    integer :: default_grid = 50
-
     implicit none
+    integer, parameter :: eb = 8
+    integer, parameter :: mxpts = 200
+    integer, parameter :: mxtablcols = 25
+    integer, parameter :: default_grid = 50
 
     ! &HEAD Namelist
     integer :: version = 0
