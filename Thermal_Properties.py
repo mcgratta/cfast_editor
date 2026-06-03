@@ -15,37 +15,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 from PySide6.QtCore import Qt
-
 from namelist_definitions import NAMELISTS
-
-
-def _parse_value(text: str, metadata: Dict[str, Any]) -> Any:
-    """Convert text input into the appropriate Python type for f90nml."""
-    text = text.strip()
-    if not text:
-        return metadata.get("default")
-
-    base_type = metadata["type"]
-    if base_type.endswith("_array"):
-        text_items = [item.strip() for item in text.split(",") if item.strip()]
-        elem_type = base_type.replace("_array", "")
-        converter = int if elem_type == "integer" else float if elem_type == "real" else str
-        return [converter(item) for item in text_items] if text_items else metadata.get("default")
-    if base_type == "integer":
-        try:
-            return int(text)
-        except ValueError:
-            return metadata.get("default")
-    if base_type == "real":
-        try:
-            return float(text)
-        except ValueError:
-            return metadata.get("default")
-    if base_type == "logical":
-        lowered = text.lower()
-        return lowered in ("t", "true", ".true.", "1")
-    return text
-
+from tab_base import NamelistTabBase, parse_namelist_value
 
 class MaterialEntryWidget(QGroupBox):
     """Widget that captures one MATL entry."""
@@ -87,7 +58,7 @@ class MaterialEntryWidget(QGroupBox):
         values = {}
         for var_name, widget in self.fields.items():
             meta = self.defaults[var_name]
-            values[var_name] = _parse_value(widget.text(), meta)
+            values[var_name] = parse_namelist_value(widget.text(), meta)
         return values
 
     def set_values(self, values: Dict[str, Any]):

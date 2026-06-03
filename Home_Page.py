@@ -9,6 +9,7 @@ from PySide6.QtGui import QAction
 from namelist_definitions import NAMELISTS
 from General import General
 from Thermal_Properties import Thermal_Properties
+from tab_base import NamelistTabBase
 
 # --- Shared Tab Base Class ---
 class NamelistTab(QWidget):
@@ -43,26 +44,18 @@ class NamelistTab(QWidget):
         layout.addRow(f"{group} Parameters:", le)
         self.fields[group] = le
 
-    def get_data(self):
-        data = {}
-        for group, widget in self.fields.items():
-            data[group] = widget.text()
-        return data
-
-    def set_data(self, data):
-        for group, val in data.items():
-            if group in self.fields:
-                self.fields[group].setText(str(val))
+##    def get_data(self):
+##        data = {}
+##        for group, widget in self.fields.items():
+##            data[group] = widget.text()
+##        return data
+##
+##    def set_data(self, data):
+##        for group, val in data.items():
+##            if group in self.fields:
+##                self.fields[group].setText(str(val))
 
 # --- Specific Tab Implementations ---
-
-#class General(NamelistTab):
-#    def __init__(self, parent=None):
-#        super().__init__(parent, groups=['HEAD', 'TIME', 'INIT', 'MISC'], multi=False)
-
-#class Thermal_Properties(NamelistTab):
-#    def __init__(self, parent=None):
-#        super().__init__(parent, groups=['MATL'], multi=True)
 
 class Compartments(NamelistTab):
     def __init__(self, parent=None):
