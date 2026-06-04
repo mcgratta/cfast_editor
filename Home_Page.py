@@ -9,6 +9,10 @@ from PySide6.QtGui import QAction
 from namelist_definitions import NAMELISTS
 from General import General
 from Thermal_Properties import Thermal_Properties
+from Compartments import Compartments
+from Wall_Vents import Wall_Vents
+from Ceiling_Vents import Ceiling_Vents
+from Mechanical_Vents import Mechanical_Vents
 from tab_base import NamelistTabBase
 
 # --- Shared Tab Base Class ---
@@ -57,21 +61,21 @@ class NamelistTab(QWidget):
 
 # --- Specific Tab Implementations ---
 
-class Compartments(NamelistTab):
-    def __init__(self, parent=None):
-        super().__init__(parent, groups=['COMP'], multi=True)
+##class Compartments(NamelistTab):
+##    def __init__(self, parent=None):
+##        super().__init__(parent, groups=['COMP'], multi=True)
 
-class Wall_Vents(NamelistTab):
-    def __init__(self, parent=None):
-        super().__init__(parent, groups=['VENT'], multi=True)
+##class Wall_Vents(NamelistTab):
+##    def __init__(self, parent=None):
+##        super().__init__(parent, groups=['VENT'], multi=True)
 
-class Ceiling_Vents(NamelistTab):
-    def __init__(self, parent=None):
-        super().__init__(parent, groups=['VENT'], multi=True)
+##class Ceiling_Vents(NamelistTab):
+##    def __init__(self, parent=None):
+##        super().__init__(parent, groups=['VENT'], multi=True)
 
-class Mechanical_Vents(NamelistTab):
-    def __init__(self, parent=None):
-        super().__init__(parent, groups=['VENT'], multi=True)
+##class Mechanical_Vents(NamelistTab):
+##    def __init__(self, parent=None):
+##        super().__init__(parent, groups=['VENT'], multi=True)
 
 class Fires(NamelistTab):
     def __init__(self, parent=None):

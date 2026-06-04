@@ -44,7 +44,7 @@ NAMELISTS = {
         "grid": {"type": "integer_array", "default": [50, 50, 50]},
         "hall": {"type": "logical", "default": False},
         "height": {"type": "real", "default": 0.0},
-        "comp_id": {"type": "string", "default": "NULL"},
+        "id": {"type": "string", "default": "NULL"},
         "ceiling_matl_id": {"type": "string_array", "default": ["OFF", "OFF", "OFF"]},
         "floor_matl_id": {"type": "string_array", "default": ["OFF", "OFF", "OFF"]},
         "wall_matl_id": {"type": "string_array", "default": ["OFF", "OFF", "OFF"]},
